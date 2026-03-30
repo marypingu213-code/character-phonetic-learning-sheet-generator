@@ -229,13 +229,6 @@
             );
         };
 
-        const ArrowIcon = () => (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="1.5" className="mt-1 shrink-0">
-                <path d="M16 20 L8 20 L8 4" />
-                <path d="M4 8 L8 4 L12 8" />
-            </svg>
-        );
-
         const CropMark = ({ position }) => {
             const offset = '8mm';
             const getStyle = () => {
@@ -288,17 +281,17 @@
             };
 
             const generateWorksheet = () => {
-                // 改用 bopomofo 函數，強制取得注音陣列
-                const { bopomofo } = window.pinyinPro || {};
+                // 改回使用 pinyin 函數，確保各版本相容性並正確取得注音陣列
+                const { pinyin } = window.pinyinPro || {};
                 
                 const lines = rawWords.split('\n').map(l => l.trim()).filter(Boolean);
                 let parsedWords = lines.map(line => {
                     const parts = line.split(/[\s\t]+/);
                     if (parts.length >= 3) {
                         return { word: parts[0], zy1: parts[1], zy2: parts[2] };
-                    } else if (parts[0].length === 2 && bopomofo) {
+                    } else if (parts[0].length === 2 && pinyin) {
                         try {
-                            const zyArray = bopomofo(parts[0], { type: 'array' });
+                            const zyArray = pinyin(parts[0], { pattern: 'bopomofo', type: 'array' });
                             return { word: parts[0], zy1: zyArray[0] || '', zy2: zyArray[1] || '' };
                         } catch (e) {
                             return { word: parts[0], zy1: '', zy2: '' };
@@ -441,8 +434,8 @@
                                                     alert("注音轉換套件尚未載入，請確認您的網路是否有阻擋，或稍後再試。");
                                                     return;
                                                 }
-                                                // 修正：強制使用 bopomofo API 確保只產出注音符號
-                                                const { bopomofo } = window.pinyinPro;
+                                                // 修正：改回使用 pinyin API 確保正確產出注音符號
+                                                const { pinyin } = window.pinyinPro;
                                                 const lines = rawWords.split('\n');
                                                 const newLines = lines.map(line => {
                                                     const trimmed = line.trim();
@@ -452,7 +445,7 @@
                                                     if (word.length !== 2) return trimmed;
                                                     
                                                     try {
-                                                        const zyArray = bopomofo(word, { type: 'array' });
+                                                        const zyArray = pinyin(word, { pattern: 'bopomofo', type: 'array' });
                                                         return `${word} ${zyArray[0]} ${zyArray[1]}`;
                                                     } catch (e) {
                                                         return trimmed;
@@ -544,7 +537,6 @@
                                                                     </div>
                                                                     
                                                                 </div>
-                                                                <ArrowIcon />
                                                             </div>
                                                         );
                                                     })}
