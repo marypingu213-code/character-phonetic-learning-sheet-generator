@@ -8,20 +8,12 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 強制使用最新版本 pinyin-pro 以確保正確支援 pattern: 'bopomofo' (注音) -->
-    <script src="https://unpkg.com/pinyin-pro@3.25.1/dist/index.js"></script>
+    <!-- 更換為更穩定的 jsdelivr 伺服器，解決網路被擋載入失敗的問題 -->
+    <script src="https://cdn.jsdelivr.net/npm/pinyin-pro"></script>
     <style>
         /* 基礎中文字體設定，優先使用書法中楷，若無則退回標準標楷體 */
         body {
             font-family: '書法中楷', 'DFKai-SB', 'BiauKai', 'PMingLiU', 'Noto Serif TC', serif;
-        }
-
-        /* 注音直排設定 */
-        .zhuyin-text {
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-            letter-spacing: -2px;
-            line-height: 1;
         }
 
         /* 標題直排設定 */
@@ -39,7 +31,6 @@
 
         /* 列印相關設定 */
         @media print {
-            /* margin: 0 可消除瀏覽器預設的網址、日期、頁碼等 Header/Footer */
             @page { 
                 size: A4 landscape; 
                 margin: 0mm; 
@@ -52,19 +43,17 @@
             }
             .no-print { display: none !important; }
             
-            /* 確保每張學習單獨立一頁，並以 padding 作為安全邊界 */
             .page-container { 
                 width: 297mm;
                 height: 210mm;
                 margin: 0;
-                padding: 12mm; /* 列印時的邊界留白 */
+                padding: 12mm; 
                 page-break-after: always;
                 break-after: page;
                 box-sizing: border-box;
                 box-shadow: none !important;
             }
             
-            /* 最後一頁不需要換頁符號 */
             .page-container:last-child {
                 page-break-after: auto;
                 break-after: auto;
@@ -89,7 +78,6 @@
         .editable-cell {
             outline: none;
             transition: background-color 0.2s;
-            cursor: text;
         }
         @media screen {
             .editable-cell:hover, .editable-cell:focus {
@@ -103,7 +91,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         // 預設語詞資料庫
         const DEFAULT_WORDS = `
@@ -143,7 +131,111 @@
 
         const WORDS_PER_PAGE = 27; // 3列 x 9欄
 
-        // 指示箭頭 SVG 組件 (L型箭頭)
+        // --- 元件：國字編輯框 ---
+        const EditableChar = ({ initialValue }) => {
+            const [val, setVal] = useState(initialValue);
+            useEffect(() => { setVal(initialValue); }, [initialValue]);
+            
+            return (
+                <span 
+                    contentEditable 
+                    suppressContentEditableWarning 
+                    onBlur={(e) => setVal(e.target.innerText.trim())}
+                    className="editable-cell min-w-[1em] min-h-[1em] flex items-center justify-center text-center outline-none cursor-text"
+                >
+                    {val}
+                </span>
+            );
+        };
+
+        // --- 元件：智慧注音編輯與排版框 (解決聲調位置問題) ---
+        const EditableZhuyin = ({ initialValue }) => {
+            const [isEditing, setIsEditing] = useState(false);
+            const [val, setVal] = useState(initialValue);
+            const inputRef = useRef(null);
+
+            useEffect(() => { setVal(initialValue); }, [initialValue]);
+
+            // 點擊編輯時自動選取與對焦
+            useEffect(() => {
+                if (isEditing && inputRef.current) {
+                    inputRef.current.focus();
+                    try {
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.selectNodeContents(inputRef.current);
+                        range.collapse(false);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    } catch(e) {}
+                }
+            }, [isEditing]);
+
+            const handleBlur = (e) => {
+                setIsEditing(false);
+                setVal(e.target.innerText.trim());
+            };
+
+            // 編輯模式：變成垂直純文字輸入框
+            if (isEditing) {
+                return (
+                    <div 
+                        ref={inputRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onBlur={handleBlur}
+                        className="w-full h-full flex items-center justify-center text-center text-[13px] bg-yellow-100 outline-none rounded"
+                        style={{ writingMode: 'vertical-rl' }}
+                    >
+                        {val}
+                    </div>
+                );
+            }
+
+            // 顯示模式：智慧拆解聲調，強制排版到正確位置
+            let tone = '';
+            let letters = val || '';
+            let isLight = false;
+
+            // 抓取聲調
+            if (letters.includes('˙')) {
+                tone = '˙';
+                letters = letters.replace('˙', '');
+                isLight = true;
+            } else {
+                for (let t of ['ˊ', 'ˇ', 'ˋ']) {
+                    if (letters.includes(t)) {
+                        tone = t;
+                        letters = letters.replace(t, '');
+                        break;
+                    }
+                }
+            }
+
+            return (
+                <div 
+                    className="editable-cell relative flex flex-col items-center justify-center w-full h-full cursor-text"
+                    onClick={() => setIsEditing(true)}
+                >
+                    {/* 輕聲固定在正上方，並配合注音本體稍微向左移 */}
+                    {isLight && <span className="absolute top-[4px] left-1/2 -translate-x-1/2 -ml-[3px] leading-none font-bold text-[14px]">˙</span>}
+                    
+                    {/* 注音本體 (稍微往左靠，留出右邊空間給聲調) */}
+                    <div className="flex flex-col items-center justify-center text-[14px] leading-[1.1] transform -translate-x-[3px]">
+                        {letters.split('').map((c, i) => <span key={i} className="block">{c}</span>)}
+                    </div>
+                    
+                    {/* 其他聲調固定在右側邊緣內部 */}
+                    {!isLight && tone && (
+                        <span className="absolute right-[2px] top-1/2 -translate-y-1/2 leading-none font-bold text-[15px]">
+                            {tone}
+                        </span>
+                    )}
+                </div>
+            );
+        };
+
+        // 指示箭頭 SVG 組件
         const ArrowIcon = () => (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="1.5" className="mt-1 shrink-0">
                 <path d="M16 20 L8 20 L8 4" />
@@ -214,7 +306,7 @@
                 setPagesData(chunks);
             };
 
-            // 儲存題庫進度功能 (存成 JSON 專案檔)
+            // 儲存題庫進度功能
             const saveToFile = () => {
                 const data = { academicYear, schoolName, grade, rawWords };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -238,7 +330,7 @@
                         if(data.schoolName) setSchoolName(data.schoolName);
                         if(data.grade) setGrade(data.grade);
                         if(data.rawWords) setRawWords(data.rawWords);
-                        e.target.value = null; // 重設以便可重複選取同一個檔案
+                        e.target.value = null;
                     } catch(err) {
                         alert("讀取失敗，請確認是否為本系統產生的存檔檔案！");
                     }
@@ -295,7 +387,7 @@
                                 <div className="mt-4 flex flex-col gap-3">
                                     <div className="flex flex-wrap gap-3 items-center">
                                         <div className="text-sm text-red-600 font-bold mr-auto flex items-center gap-1 bg-red-50 px-2 py-1 rounded">
-                                            <span>💡</span> 提示：下方學習單可以直接「點擊文字」手動修改錯誤！
+                                            <span>💡</span> 提示：下方學習單可以「點擊格子」手動微調破音字！
                                         </div>
                                         
                                         <button 
@@ -315,7 +407,7 @@
                                         <button 
                                             onClick={() => {
                                                 if (!window.pinyinPro) {
-                                                    alert("注音轉換套件尚未載入，請確認網路連線。");
+                                                    alert("注音轉換套件尚未載入，請確認您的網路是否有阻擋，或稍後再試。");
                                                     return;
                                                 }
                                                 const { pinyin } = window.pinyinPro;
@@ -381,7 +473,7 @@
                                                         const wordData = pageWords[dataIndex];
 
                                                         if (!wordData) {
-                                                            return <div key={colIndex} className="w-[4.5rem] shrink-0"></div>; 
+                                                            return <div key={colIndex} className="w-[5rem] shrink-0"></div>; 
                                                         }
 
                                                         const { word, zy1, zy2, mode } = wordData;
@@ -395,34 +487,28 @@
 
                                                         return (
                                                             <div key={colIndex} className="flex flex-col items-center gap-1 shrink-0">
-                                                                {/* 語詞大框框：絕對固定尺寸，防止任何撐開 */}
-                                                                <div className="w-[4.5rem] h-[9rem] border border-black flex flex-col shrink-0 box-border bg-white">
+                                                                {/* 語詞大框框：整體加寬加高 */}
+                                                                <div className="w-[5rem] h-[10rem] border border-black flex flex-col shrink-0 box-border bg-white">
                                                                     
                                                                     {/* 上方字塊 */}
-                                                                    <div className="flex w-full h-[4.5rem] border-b border-black shrink-0 box-border">
+                                                                    <div className="flex w-full h-[5rem] border-b border-black shrink-0 box-border">
                                                                         <div className="w-[3.25rem] border-r border-black flex items-center justify-center text-5xl shrink-0">
-                                                                            <span contentEditable suppressContentEditableWarning className="editable-cell min-w-[1em] min-h-[1em] flex items-center justify-center text-center">
-                                                                                {showChar1 ? char1 : ''}
-                                                                            </span>
+                                                                            {showChar1 ? <EditableChar initialValue={char1} /> : null}
                                                                         </div>
-                                                                        <div className="w-[1.25rem] flex items-center justify-center shrink-0 overflow-visible relative">
-                                                                            <span contentEditable suppressContentEditableWarning className="zhuyin-text text-sm editable-cell min-w-[1.5em] min-h-[3em] inline-block text-center">
-                                                                                {showZy1 ? zy1 : ''}
-                                                                            </span>
+                                                                        {/* 注音格子加寬為 1.75rem */}
+                                                                        <div className="w-[1.75rem] flex items-center justify-center shrink-0 relative">
+                                                                            {showZy1 ? <EditableZhuyin initialValue={zy1} /> : null}
                                                                         </div>
                                                                     </div>
                                                                     
                                                                     {/* 下方字塊 */}
-                                                                    <div className="flex w-full h-[4.5rem] shrink-0 box-border">
+                                                                    <div className="flex w-full h-[5rem] shrink-0 box-border">
                                                                         <div className="w-[3.25rem] border-r border-black flex items-center justify-center text-5xl shrink-0">
-                                                                            <span contentEditable suppressContentEditableWarning className="editable-cell min-w-[1em] min-h-[1em] flex items-center justify-center text-center">
-                                                                                {showChar2 ? char2 : ''}
-                                                                            </span>
+                                                                            {showChar2 ? <EditableChar initialValue={char2} /> : null}
                                                                         </div>
-                                                                        <div className="w-[1.25rem] flex items-center justify-center shrink-0 overflow-visible relative">
-                                                                            <span contentEditable suppressContentEditableWarning className="zhuyin-text text-sm editable-cell min-w-[1.5em] min-h-[3em] inline-block text-center">
-                                                                                {showZy2 ? zy2 : ''}
-                                                                            </span>
+                                                                        {/* 注音格子加寬為 1.75rem */}
+                                                                        <div className="w-[1.75rem] flex items-center justify-center shrink-0 relative">
+                                                                            {showZy2 ? <EditableZhuyin initialValue={zy2} /> : null}
                                                                         </div>
                                                                     </div>
                                                                     
