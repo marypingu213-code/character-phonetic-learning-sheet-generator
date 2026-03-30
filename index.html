@@ -8,6 +8,8 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 載入注音引擎 -->
+    <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.26.0/dist/index.js"></script>
     <style>
         /* 基礎中文字體設定，預設使用標準楷體系列 */
         body {
@@ -278,17 +280,49 @@
                 setCustomFontName(file.name);
             };
 
+            // 自動標註注音功能 (過濾掉錯誤的拼音)
+            const handleAutoAnnotate = () => {
+                if (!window.pinyinPro) {
+                    alert("注音轉換套件尚未載入，請確認您的網路是否有阻擋，或稍後再試。");
+                    return;
+                }
+                const { pinyin } = window.pinyinPro;
+                const lines = rawWords.split('\n');
+                const newLines = lines.map(line => {
+                    const trimmed = line.trim();
+                    // 如果這行已經有空白 (代表已經有注音了)，就跳過不要覆蓋
+                    if (!trimmed || trimmed.includes(' ') || trimmed.includes('\t')) return trimmed;
+                    
+                    const word = trimmed.substring(0, 2);
+                    if (word.length !== 2) return trimmed;
+                    
+                    try {
+                        const zyArray = pinyin(word, { pattern: 'bopomofo', type: 'array' });
+                        let zy1 = zyArray[0] || '';
+                        let zy2 = zyArray[1] || '';
+                        
+                        // 【防呆機制】如果產出的是英文字母(拼音)，強制設為空白，讓使用者手動輸入
+                        if (/[a-zA-Z]/.test(zy1)) zy1 = '';
+                        if (/[a-zA-Z]/.test(zy2)) zy2 = '';
+                        
+                        return `${word} ${zy1} ${zy2}`.trim();
+                    } catch (e) {
+                        return trimmed;
+                    }
+                });
+                setRawWords(newLines.join('\n'));
+            };
+
             const generateWorksheet = () => {
                 const lines = rawWords.split('\n').map(l => l.trim()).filter(Boolean);
                 let parsedWords = lines.map(line => {
                     const parts = line.split(/[\s\t]+/);
-                    if (parts.length >= 3) {
-                        return { word: parts[0], zy1: parts[1], zy2: parts[2] };
-                    } else if (parts[0].length >= 2) {
-                        return { word: parts[0], zy1: '', zy2: '' };
+                    // 完全信任文字框的內容，沒有注音就留白
+                    if (parts.length >= 1) {
+                        return { word: parts[0], zy1: parts[1] || '', zy2: parts[2] || '' };
                     }
                     return null;
-                }).filter(Boolean);
+                }).filter(item => item && item.word.length >= 2);
 
                 parsedWords.sort(() => Math.random() - 0.5);
 
@@ -368,7 +402,7 @@
                                     </select>
                                 </div>
                                 
-                                {/* 新增：自訂字型上傳區 */}
+                                {/* 自訂字型上傳區 */}
                                 <div className="pt-4 border-t border-gray-200 mt-2">
                                     <label className="block text-sm font-bold text-blue-700 mb-1">
                                         🔤 載入自訂字型檔 (可選)
@@ -399,7 +433,7 @@
                                 <div className="mt-4 flex flex-col gap-3">
                                     <div className="flex flex-wrap gap-3 items-center">
                                         <div className="text-sm text-red-600 font-bold mr-auto flex items-center gap-1 bg-red-50 px-2 py-1 rounded">
-                                            <span>💡</span> 提示：下方學習單可以「點擊格子」手動微調破音字！
+                                            <span>💡</span> 提示：輸入完詞彙後，請依照下方步驟點擊按鈕！
                                         </div>
                                         
                                         <button 
@@ -416,17 +450,26 @@
                                     </div>
 
                                     <div className="flex flex-wrap gap-4 justify-end border-t pt-3 border-gray-200">
+                                        {/* 步驟一：自動標註 */}
+                                        <button 
+                                            onClick={handleAutoAnnotate}
+                                            className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded shadow flex items-center gap-2 transition-colors mr-auto"
+                                        >
+                                            <span>✨</span> 步驟一：自動標註注音
+                                        </button>
+
+                                        {/* 步驟二：重整產生 */}
                                         <button 
                                             onClick={generateWorksheet}
                                             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded shadow flex items-center gap-2 transition-colors"
                                         >
-                                            <span>🔄</span> 重整並重新洗牌產生
+                                            <span>🔄</span> 步驟二：重整並產生學習單
                                         </button>
                                         <button 
                                             onClick={() => window.print()}
                                             className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded shadow flex items-center gap-2 transition-colors"
                                         >
-                                            <span>🖨️</span> 列印學習單
+                                            <span>🖨️</span> 列印
                                         </button>
                                     </div>
                                 </div>
@@ -471,7 +514,6 @@
 
                                                         return (
                                                             <div key={colIndex} className="flex flex-col items-center gap-1 shrink-0">
-                                                                {/* 語詞大框框：整體寬度 5rem */}
                                                                 <div className="w-[5rem] h-[10rem] border border-black flex flex-col shrink-0 box-border bg-white">
                                                                     
                                                                     {/* 上方字塊 */}
@@ -479,7 +521,6 @@
                                                                         <div className="w-[3.25rem] border-r border-black flex items-center justify-center text-5xl shrink-0">
                                                                             {showChar1 ? <EditableChar initialValue={char1} /> : null}
                                                                         </div>
-                                                                        {/* 注音格子 1.75rem，確保空間足夠 */}
                                                                         <div className="w-[1.75rem] flex items-center justify-center shrink-0 relative">
                                                                             {showZy1 ? <EditableZhuyin initialValue={zy1} /> : null}
                                                                         </div>
@@ -503,10 +544,10 @@
                                             ))}
                                         </div>
 
-                                        {/* 右側：直排標題區 */}
+                                        {/* 右側：直排標題區 (調整格式與順序) */}
                                         <div className="w-16 flex justify-center items-start pt-2">
                                             <div className="vertical-title text-[19px] font-bold text-gray-800 leading-tight flex items-center">
-                                                <span className="combine-upright">{academicYear}</span> 學年度{schoolName} {grade}年級 寫國字注音 國語學習單 {pageLetter}
+                                                <span className="combine-upright">{academicYear}</span> 學年度{schoolName} {grade}年級 國語學習單 寫國字注音 {pageLetter}
                                             </div>
                                         </div>
 
