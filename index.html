@@ -255,6 +255,7 @@
             const [rawWords, setRawWords] = useState(DEFAULT_WORDS);
             const [pagesData, setPagesData] = useState([]);
             const [customFontName, setCustomFontName] = useState('');
+            const [isAnnotating, setIsAnnotating] = useState(false);
 
             // 處理自訂字型上傳
             const handleFontUpload = (e) => {
@@ -280,37 +281,60 @@
                 setCustomFontName(file.name);
             };
 
-            // 自動標註注音功能 (過濾掉錯誤的拼音)
+            // 嚴謹判斷是否包含注音符號 (ㄅ-ㄩ 範圍)
+            const hasBopomofo = (str) => /[\u3105-\u312F]/.test(str);
+
+            // 自動標註注音功能 (100% 過濾錯誤的拼音，只輸出ㄅㄆㄇㄈ)
             const handleAutoAnnotate = () => {
                 if (!window.pinyinPro) {
-                    alert("注音轉換套件尚未載入，請確認您的網路是否有阻擋，或稍後再試。");
+                    alert("注音轉換套件尚未載入，請確認您的網路是否有阻擋，或稍等幾秒後再試。");
                     return;
                 }
-                const { pinyin } = window.pinyinPro;
-                const lines = rawWords.split('\n');
-                const newLines = lines.map(line => {
-                    const trimmed = line.trim();
-                    // 如果這行已經有空白 (代表已經有注音了)，就跳過不要覆蓋
-                    if (!trimmed || trimmed.includes(' ') || trimmed.includes('\t')) return trimmed;
+                
+                setIsAnnotating(true); // 觸發按鈕視覺回饋
+
+                setTimeout(() => {
+                    const { bopomofo, pinyin } = window.pinyinPro;
+                    const lines = rawWords.split('\n');
                     
-                    const word = trimmed.substring(0, 2);
-                    if (word.length !== 2) return trimmed;
+                    const newLines = lines.map(line => {
+                        const trimmed = line.trim();
+                        // 如果這行已經有空白 (代表您已經幫它加過注音了)，就跳過不要覆蓋
+                        if (!trimmed || trimmed.includes(' ') || trimmed.includes('\t')) return trimmed;
+                        
+                        // 確保只有抓到長度為 2 的詞彙才進行處理
+                        const word = trimmed.substring(0, 2);
+                        if (word.length !== 2) return trimmed;
+                        
+                        try {
+                            let zyArray = [];
+                            
+                            // 優先呼叫原生的 bopomofo API (最精準)
+                            if (typeof bopomofo === 'function') {
+                                let result = bopomofo(word, { type: 'array' });
+                                if (typeof result === 'string') zyArray = result.split(' ');
+                                else zyArray = result;
+                            } else if (typeof pinyin === 'function') {
+                                zyArray = pinyin(word, { pattern: 'bopomofo', type: 'array' });
+                            }
+
+                            let zy1 = zyArray[0] || '';
+                            let zy2 = zyArray[1] || '';
+                            
+                            // 【最強防呆機制】只要轉換出來的字串裡面沒有「ㄅㄆㄇㄈ」，就代表轉換失敗，直接清空讓老師手動打！
+                            if (zy1 && !hasBopomofo(zy1)) zy1 = '';
+                            if (zy2 && !hasBopomofo(zy2)) zy2 = '';
+                            
+                            return `${word} ${zy1} ${zy2}`.trim();
+                        } catch (e) {
+                            console.error("轉換失敗：", e);
+                            return trimmed;
+                        }
+                    });
                     
-                    try {
-                        const zyArray = pinyin(word, { pattern: 'bopomofo', type: 'array' });
-                        let zy1 = zyArray[0] || '';
-                        let zy2 = zyArray[1] || '';
-                        
-                        // 【防呆機制】如果產出的是英文字母(拼音)，強制設為空白，讓使用者手動輸入
-                        if (/[a-zA-Z]/.test(zy1)) zy1 = '';
-                        if (/[a-zA-Z]/.test(zy2)) zy2 = '';
-                        
-                        return `${word} ${zy1} ${zy2}`.trim();
-                    } catch (e) {
-                        return trimmed;
-                    }
-                });
-                setRawWords(newLines.join('\n'));
+                    setRawWords(newLines.join('\n'));
+                    setIsAnnotating(false); // 結束按鈕視覺回饋
+                }, 50); // 微小的延遲確保畫面有重繪
             };
 
             const generateWorksheet = () => {
@@ -453,9 +477,10 @@
                                         {/* 步驟一：自動標註 */}
                                         <button 
                                             onClick={handleAutoAnnotate}
-                                            className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded shadow flex items-center gap-2 transition-colors mr-auto"
+                                            disabled={isAnnotating}
+                                            className={`${isAnnotating ? 'bg-yellow-400 cursor-wait' : 'bg-yellow-500 hover:bg-yellow-600'} text-white font-bold py-2 px-4 rounded shadow flex items-center gap-2 transition-colors mr-auto`}
                                         >
-                                            <span>✨</span> 步驟一：自動標註注音
+                                            <span>✨</span> {isAnnotating ? '標註中...' : '步驟一：自動標註注音'}
                                         </button>
 
                                         {/* 步驟二：重整產生 */}
