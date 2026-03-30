@@ -8,10 +8,10 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 更換為更穩定的 jsdelivr 伺服器，解決網路被擋載入失敗的問題 -->
+    <!-- 使用 jsdelivr 伺服器載入 pinyin-pro -->
     <script src="https://cdn.jsdelivr.net/npm/pinyin-pro"></script>
     <style>
-        /* 基礎中文字體設定，優先使用書法中楷，若無則退回標準標楷體 */
+        /* 基礎中文字體設定，預設使用標準楷體系列 */
         body {
             font-family: '書法中楷', 'DFKai-SB', 'BiauKai', 'PMingLiU', 'Noto Serif TC', serif;
         }
@@ -148,7 +148,7 @@
             );
         };
 
-        // --- 元件：智慧注音編輯與排版框 (解決聲調位置問題) ---
+        // --- 元件：智慧注音編輯與排版框 ---
         const EditableZhuyin = ({ initialValue }) => {
             const [isEditing, setIsEditing] = useState(false);
             const [val, setVal] = useState(initialValue);
@@ -156,7 +156,6 @@
 
             useEffect(() => { setVal(initialValue); }, [initialValue]);
 
-            // 點擊編輯時自動選取與對焦
             useEffect(() => {
                 if (isEditing && inputRef.current) {
                     inputRef.current.focus();
@@ -176,7 +175,6 @@
                 setVal(e.target.innerText.trim());
             };
 
-            // 編輯模式：變成垂直純文字輸入框
             if (isEditing) {
                 return (
                     <div 
@@ -192,12 +190,11 @@
                 );
             }
 
-            // 顯示模式：智慧拆解聲調，強制排版到正確位置
+            // 顯示模式排版
             let tone = '';
             let letters = val || '';
             let isLight = false;
 
-            // 抓取聲調
             if (letters.includes('˙')) {
                 tone = '˙';
                 letters = letters.replace('˙', '');
@@ -217,15 +214,12 @@
                     className="editable-cell relative flex flex-col items-center justify-center w-full h-full cursor-text"
                     onClick={() => setIsEditing(true)}
                 >
-                    {/* 輕聲固定在正上方，並配合注音本體稍微向左移 */}
                     {isLight && <span className="absolute top-[4px] left-1/2 -translate-x-1/2 -ml-[3px] leading-none font-bold text-[14px]">˙</span>}
                     
-                    {/* 注音本體 (稍微往左靠，留出右邊空間給聲調) */}
                     <div className="flex flex-col items-center justify-center text-[14px] leading-[1.1] transform -translate-x-[3px]">
                         {letters.split('').map((c, i) => <span key={i} className="block">{c}</span>)}
                     </div>
                     
-                    {/* 其他聲調固定在右側邊緣內部 */}
                     {!isLight && tone && (
                         <span className="absolute right-[2px] top-1/2 -translate-y-1/2 leading-none font-bold text-[15px]">
                             {tone}
@@ -235,7 +229,6 @@
             );
         };
 
-        // 指示箭頭 SVG 組件
         const ArrowIcon = () => (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="1.5" className="mt-1 shrink-0">
                 <path d="M16 20 L8 20 L8 4" />
@@ -243,7 +236,6 @@
             </svg>
         );
 
-        // 裁切角標 SVG
         const CropMark = ({ position }) => {
             const offset = '8mm';
             const getStyle = () => {
@@ -269,19 +261,44 @@
             const [grade, setGrade] = useState('三');
             const [rawWords, setRawWords] = useState(DEFAULT_WORDS);
             const [pagesData, setPagesData] = useState([]);
+            const [customFontName, setCustomFontName] = useState('');
 
-            // 解析語詞、洗牌、設定測驗模式
+            // 處理自訂字型上傳
+            const handleFontUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const fontUrl = URL.createObjectURL(file);
+                const fontId = 'CustomFont_' + Date.now();
+
+                // 動態注入字型 CSS
+                const newStyle = document.createElement('style');
+                newStyle.appendChild(document.createTextNode(`
+                    @font-face {
+                        font-family: '${fontId}';
+                        src: url('${fontUrl}');
+                    }
+                    /* 強制所有文字套用新上傳的字體 */
+                    body, .editable-cell, .vertical-title, .print-area {
+                        font-family: '${fontId}', 'DFKai-SB', 'BiauKai', serif !important;
+                    }
+                `));
+                document.head.appendChild(newStyle);
+                setCustomFontName(file.name);
+            };
+
             const generateWorksheet = () => {
-                const { pinyin } = window.pinyinPro || {};
+                // 改用 bopomofo 函數，強制取得注音陣列
+                const { bopomofo } = window.pinyinPro || {};
                 
                 const lines = rawWords.split('\n').map(l => l.trim()).filter(Boolean);
                 let parsedWords = lines.map(line => {
                     const parts = line.split(/[\s\t]+/);
                     if (parts.length >= 3) {
                         return { word: parts[0], zy1: parts[1], zy2: parts[2] };
-                    } else if (parts[0].length === 2 && pinyin) {
+                    } else if (parts[0].length === 2 && bopomofo) {
                         try {
-                            const zyArray = pinyin(parts[0], { pattern: 'bopomofo', type: 'array' });
+                            const zyArray = bopomofo(parts[0], { type: 'array' });
                             return { word: parts[0], zy1: zyArray[0] || '', zy2: zyArray[1] || '' };
                         } catch (e) {
                             return { word: parts[0], zy1: '', zy2: '' };
@@ -306,7 +323,6 @@
                 setPagesData(chunks);
             };
 
-            // 儲存題庫進度功能
             const saveToFile = () => {
                 const data = { academicYear, schoolName, grade, rawWords };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -318,7 +334,6 @@
                 URL.revokeObjectURL(url);
             };
 
-            // 讀取題庫進度功能
             const loadFromFile = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -344,13 +359,13 @@
 
             return (
                 <div>
-                    {/* 控制面板 (列印時隱藏) */}
                     <div className="no-print bg-white p-6 shadow-md mb-8 max-w-5xl mx-auto rounded-lg mt-6 border-t-4 border-blue-500">
                         <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
                             <span>📝</span> 國字注音學習單產生器
                         </h1>
                         
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* 左側設定區 */}
                             <div className="col-span-1 space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">學年度</label>
@@ -371,8 +386,24 @@
                                         <option value="六">六年級</option>
                                     </select>
                                 </div>
+                                
+                                {/* 新增：自訂字型上傳區 */}
+                                <div className="pt-4 border-t border-gray-200 mt-2">
+                                    <label className="block text-sm font-bold text-blue-700 mb-1">
+                                        🔤 載入自訂字型檔 (可選)
+                                    </label>
+                                    <p className="text-xs text-gray-500 mb-2">上傳電腦中的「書法中楷.ttf」確保字體完美呈現。</p>
+                                    <label className="flex items-center justify-center w-full px-4 py-2 bg-white text-blue-600 rounded shadow-sm border border-blue-300 cursor-pointer hover:bg-blue-50 transition-colors">
+                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                        </svg>
+                                        <span className="text-sm font-bold truncate max-w-[150px]">{customFontName || '選擇字型檔案 (.ttf/.otf)'}</span>
+                                        <input type='file' className="hidden" accept=".ttf,.otf,.woff,.woff2" onChange={handleFontUpload} />
+                                    </label>
+                                </div>
                             </div>
 
+                            {/* 右側語詞輸入區 */}
                             <div className="col-span-2 flex flex-col">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                     語詞資料庫 (格式：<code className="bg-gray-100 px-1 rounded">詞彙 注音1 注音2</code>，請用空白分隔)
@@ -410,7 +441,8 @@
                                                     alert("注音轉換套件尚未載入，請確認您的網路是否有阻擋，或稍後再試。");
                                                     return;
                                                 }
-                                                const { pinyin } = window.pinyinPro;
+                                                // 修正：強制使用 bopomofo API 確保只產出注音符號
+                                                const { bopomofo } = window.pinyinPro;
                                                 const lines = rawWords.split('\n');
                                                 const newLines = lines.map(line => {
                                                     const trimmed = line.trim();
@@ -420,7 +452,7 @@
                                                     if (word.length !== 2) return trimmed;
                                                     
                                                     try {
-                                                        const zyArray = pinyin(word, { pattern: 'bopomofo', type: 'array' });
+                                                        const zyArray = bopomofo(word, { type: 'array' });
                                                         return `${word} ${zyArray[0]} ${zyArray[1]}`;
                                                     } catch (e) {
                                                         return trimmed;
@@ -487,7 +519,7 @@
 
                                                         return (
                                                             <div key={colIndex} className="flex flex-col items-center gap-1 shrink-0">
-                                                                {/* 語詞大框框：整體加寬加高 */}
+                                                                {/* 語詞大框框：整體寬度 5rem */}
                                                                 <div className="w-[5rem] h-[10rem] border border-black flex flex-col shrink-0 box-border bg-white">
                                                                     
                                                                     {/* 上方字塊 */}
@@ -495,7 +527,7 @@
                                                                         <div className="w-[3.25rem] border-r border-black flex items-center justify-center text-5xl shrink-0">
                                                                             {showChar1 ? <EditableChar initialValue={char1} /> : null}
                                                                         </div>
-                                                                        {/* 注音格子加寬為 1.75rem */}
+                                                                        {/* 注音格子 1.75rem，確保空間足夠 */}
                                                                         <div className="w-[1.75rem] flex items-center justify-center shrink-0 relative">
                                                                             {showZy1 ? <EditableZhuyin initialValue={zy1} /> : null}
                                                                         </div>
@@ -506,7 +538,6 @@
                                                                         <div className="w-[3.25rem] border-r border-black flex items-center justify-center text-5xl shrink-0">
                                                                             {showChar2 ? <EditableChar initialValue={char2} /> : null}
                                                                         </div>
-                                                                        {/* 注音格子加寬為 1.75rem */}
                                                                         <div className="w-[1.75rem] flex items-center justify-center shrink-0 relative">
                                                                             {showZy2 ? <EditableZhuyin initialValue={zy2} /> : null}
                                                                         </div>
